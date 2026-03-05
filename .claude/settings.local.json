@@ -16,7 +16,12 @@
       "Bash(git commit -m \"Initial commit: Learnie - English learning game for children\n\nFeatures:\n- Practice mode with smart question bank that reduces LLM API calls\n- Tower climbing mode with leaderboard\n- Contest mode with boss battles\n- Speech recognition with AI evaluation\n- Achievement system\n- Parent dashboard\n- Supabase integration for cloud persistence\n\nTech stack: Next.js 15, React 19, TypeScript, Tailwind CSS, Framer Motion, Supabase\")",
       "Bash(git push -u origin main)",
       "Bash(git remote set-url origin https://github.com/willzhai-ai/Learnie.git && git remote -v)",
-      "Bash(git add -A && git commit -m \"feat: rebrand to Learnie - multi-subject learning platform\n\n- Change product name from '英语冒险岛' to 'Learnie'\n- Add multi-subject learning showcase \\(English, Math, Chinese\\)\n- English Adventure Island is now one module of Learnie\n- Update homepage to reflect multi-subject positioning\n- Redesign homepage with subject cards and parent management section\" && git push)"
+      "Bash(git add -A && git commit -m \"feat: rebrand to Learnie - multi-subject learning platform\n\n- Change product name from '英语冒险岛' to 'Learnie'\n- Add multi-subject learning showcase \\(English, Math, Chinese\\)\n- English Adventure Island is now one module of Learnie\n- Update homepage to reflect multi-subject positioning\n- Redesign homepage with subject cards and parent management section\" && git push)",
+      "Bash(git add README.md && git commit -m \"docs: update README with Learnie branding\n\n- Rebrand from 'English Adventure Island' to 'Learnie'\n- Position as multi-subject learning platform\n- Add English Adventure Island as current available module\n- Document Math Playground and Chinese World as coming soon\n- Update project structure with new features \\(smart question bank, tower mode\\)\n- Improve documentation quality and organization\" && git push)",
+      "Bash(curl -s http://localhost:3000/child/practice | head -20)",
+      "Bash(curl -s http://localhost:3000/child/practice 2>&1 | grep -o \"练习模式\" | head -1)",
+      "Bash(curl -s http://localhost:3000/child/login 2>&1 | head -5)",
+      "Bash(curl -s http://localhost:3000/api/tower/question -X POST -H \"Content-Type: application/json\" -d '{\"childId\":\"test\",\"gradeLevel\":3,\"currentLevel\":1}' 2>&1 | head -10)"
     ]
   }
 }

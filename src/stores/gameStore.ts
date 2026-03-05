@@ -488,8 +488,20 @@ export const useGameStore = create<GameStore>()(
             c.id === updatedChild.id ? updatedChild : c
           );
 
+          // 详细日志：记录答题历史添加
+          console.log("[addAnswerHistory] 调用 - record:", {
+            questionId: record.questionId,
+            question: record.question.substring(0, 30) + "...",
+            score: record.score,
+            passed: record.passed,
+            difficulty: record.difficulty,
+            category: record.category,
+            syncEnabled: state.syncEnabled,
+          });
+
           // 同步到 Supabase
           if (state.syncEnabled) {
+            console.log("[addAnswerHistory] syncEnabled=true, 开始保存到 Supabase...");
             dataSync.saveAnswerHistoryToSupabase(updatedChild.id, {
               questionId: record.questionId,
               question: record.question,
@@ -499,7 +511,9 @@ export const useGameStore = create<GameStore>()(
               difficulty: record.difficulty,
               category: record.category,
               pointsEarned: 0, // 可以从 passed 计算
-            }).catch(console.error);
+            }).catch((err) => {
+              console.error("[addAnswerHistory] 保存到 Supabase 失败:", err);
+            });
 
             // 更新连胜记录到 Supabase
             dataSync.updateStreakInSupabase(
@@ -514,6 +528,8 @@ export const useGameStore = create<GameStore>()(
               updatedChild.currentPoints,
               updatedChild.totalPointsEarned
             ).catch(console.error);
+          } else {
+            console.log("[addAnswerHistory] syncEnabled=false, 跳过 Supabase 保存");
           }
 
           return {

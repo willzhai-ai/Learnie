@@ -47,14 +47,20 @@ export async function POST(request: NextRequest) {
     console.log(`[爬塔] 获取题目: gradeLevel=${gradeLevel}, currentLevel=${currentLevel}, difficulty=${difficulty}`);
 
     // 从公共题目池随机获取题目
-    const { data: question, error } = await supabase
+    // 注意：Supabase 客户端不支持 order("RANDOM()")，先获取多条数据再随机选择
+    const { data: questions, error } = await supabase
       .from("public_questions")
       .select("*")
       .eq("grade_level", gradeLevel)
       .eq("difficulty", difficulty)
-      .order("RANDOM()")
-      .limit(1)
-      .single();
+      .limit(10); // 获取多条数据
+
+    let question = null;
+    if (questions && questions.length > 0) {
+      // 客户端随机选择一道题
+      const randomIndex = Math.floor(Math.random() * questions.length);
+      question = questions[randomIndex];
+    }
 
     if (error) {
       console.log("[爬塔] 公共题目池查询失败，尝试默认题目:", error.message);

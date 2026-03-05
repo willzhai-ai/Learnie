@@ -104,24 +104,38 @@ export async function saveAnswerHistoryToSupabase(
   try {
     const sb = await getSupabaseWithAuth();
 
+    const insertData: any = {
+      child_id: childId,
+      question_id: record.questionId || null,
+      question: record.question,
+      transcript: record.transcript,
+      score: record.score,
+      passed: record.passed,
+      difficulty: record.difficulty,
+      category: record.category,
+      points_earned: record.pointsEarned,
+    };
+
+    // 详细日志：记录保存的答题历史
+    console.log("[保存答题历史] Supabase:", {
+      childId,
+      questionId: record.questionId,
+      question: record.question.substring(0, 30) + "...",
+      score: record.score,
+      passed: record.passed,
+      difficulty: record.difficulty,
+    });
+
     // 插入到 answer_history 表
-    const { error: historyError } = await sb
+    const { error: historyError, data } = await sb
       .from("answer_history")
-      .insert({
-        child_id: childId, // UUID type
-        question_id: record.questionId || null,
-        question: record.question,
-        transcript: record.transcript,
-        score: record.score,
-        passed: record.passed,
-        difficulty: record.difficulty,
-        category: record.category,
-        points_earned: record.pointsEarned,
-      });
+      .insert(insertData)
+      .select();
 
     if (historyError) {
-      console.error("保存答题历史失败:", historyError);
-      // 不抛出错误，允许继续
+      console.error("❌ [保存答题历史] 失败:", historyError);
+    } else {
+      console.log("✅ [保存答题历史] 成功:", data?.[0]);
     }
 
     // 更新 child_profiles 中的 last_practice_at
@@ -136,35 +150,7 @@ export async function saveAnswerHistoryToSupabase(
       console.error("更新最后练习时间失败:", updateError);
     }
   } catch (error) {
-    console.error("保存答题历史失败:", error);
-    // 不抛出错误，允许继续
-  }
-}
-
-/**
- * 更新孩子积分到 Supabase
- */
-export async function updateChildPointsInSupabase(
-  childId: string,
-  currentPoints: number,
-  totalPoints: number
-): Promise<void> {
-  try {
-    const sb = await getSupabaseWithAuth();
-
-    const { error } = await sb
-      .from("child_profiles")
-      .update({
-        current_points: currentPoints,
-        total_points_earned: totalPoints,
-      })
-      .eq("id", childId);
-
-    if (error) {
-      console.error("更新积分失败:", error);
-    }
-  } catch (error) {
-    console.error("更新积分失败:", error);
+    console.error("❌ [保存答题历史] 异常]:", error);
   }
 }
 
@@ -189,132 +175,84 @@ export async function updateStreakInSupabase(
 
     if (error) {
       console.error("更新连胜记录失败:", error);
+    } else {
+      console.log("✅ 连胜记录已更新:", { currentStreak, bestStreak });
     }
   } catch (error) {
-    console.error("更新连胜记录失败:", error);
+    console.error("更新连胜记录异常:", error);
   }
 }
 
 /**
- * 获取孩子的详细统计信息
+ * 更新孩子积分到 Supabase
  */
-export async function getChildStats(childId: string) {
+export async function updateChildPointsInSupabase(
+  childId: string,
+  currentPoints: number,
+  totalPointsEarned: number
+): Promise<void> {
   try {
     const sb = await getSupabaseWithAuth();
 
-    // 获取总练习次数
-    const { count: totalAttempts } = await sb
-      .from("answer_history")
-      .select("*", { count: "exact", head: true })
-      .eq("child_id", childId);
+    const { error } = await sb
+      .from("child_profiles")
+      .update({
+        current_points: currentPoints,
+        total_points_earned: totalPointsEarned,
+      })
+      .eq("id", childId);
 
-    // 获取通过次数
-    const { count: passedAttempts } = await sb
-      .from("answer_history")
-      .select("*", { count: "exact", head: true })
-      .eq("child_id", childId)
-      .eq("passed", true);
-
-    // 获取平均分数
-    const { data: scoreData } = await sb
-      .from("answer_history")
-      .select("score")
-      .eq("child_id", childId);
-
-    const avgScore = scoreData && scoreData.length > 0
-      ? scoreData.reduce((sum, r) => sum + (r.score || 0), 0) / scoreData.length
-      : 0;
-
-    // 获取各难度通过率
-    const { data: difficultyData } = await sb
-      .from("answer_history")
-      .select("difficulty, passed")
-      .eq("child_id", childId);
-
-    const difficultyStats = { 1: { total: 0, passed: 0 }, 2: { total: 0, passed: 0 }, 3: { total: 0, passed: 0 }, 4: { total: 0, passed: 0 }, 5: { total: 0, passed: 0 } };
-
-    difficultyData?.forEach((record) => {
-      const diff = record.difficulty as keyof typeof difficultyStats;
-      if (difficultyStats[diff]) {
-        difficultyStats[diff].total++;
-        if (record.passed) difficultyStats[diff].passed++;
-      }
-    });
-
-    return {
-      totalAttempts: totalAttempts || 0,
-      passedAttempts: passedAttempts || 0,
-      passRate: totalAttempts ? ((passedAttempts || 0) / totalAttempts * 100).toFixed(1) : "0",
-      avgScore: avgScore.toFixed(1),
-      difficultyStats,
-    };
+    if (error) {
+      console.error("更新积分失败:", error);
+    } else {
+      console.log("✅ 积分已更新:", { currentPoints, totalPointsEarned });
+    }
   } catch (error) {
-    console.error("获取统计信息失败:", error);
-    return null;
+    console.error("更新积分异常:", error);
   }
 }
 
-// ============================================
-// 数据转换函数
-// ============================================
+/**
+ * 同步所有孩子数据到 Supabase
+ */
+export async function syncAllChildrenToSupabase(children: Child[]): Promise<void> {
+  try {
+    const sb = await getSupabaseWithAuth();
+
+    for (const child of children) {
+      await saveChildToSupabase(child);
+    }
+
+    console.log("✅ 所有孩子数据已同步到 Supabase");
+  } catch (error) {
+    console.error("同步所有孩子数据失败:", error);
+    throw error;
+  }
+}
 
 /**
- * 将 Supabase 的 child_profile 转换为本地 Child 类型
+ * 从 Supabase 同步孩子数据（别名函数）
  */
-function supabaseChildToLocal(profile: ChildProfile): Child {
-  // 从 answer_history JSONB 中提取或使用空数组
-  const answerHistory = profile.answer_history || [];
+export async function syncChildrenFromSupabase(parentId: string): Promise<Child[]> {
+  return loadChildrenFromSupabase(parentId);
+}
 
-  // 构建 gradeLevel 对象
-  const gradeLevel: GradeLevel = {
-    grade: profile.grade_level || 3,
-    semester: (profile.semester as "上学期" | "下学期") || "上学期",
-    displayName: `小学${profile.grade_level || 3}年级${profile.semester || "上学期"}`,
-  };
-
+/**
+ * 转换 Supabase 数据到本地格式
+ */
+function supabaseChildToLocal(profile: any): Child {
   return {
     id: profile.id,
     name: profile.name,
     avatarUrl: profile.avatar_url,
-    gradeLevel,
-    currentPoints: profile.current_points,
-    totalPointsEarned: profile.total_points_earned,
-    currentLevel: profile.current_level,
-    answerHistory: answerHistory.map((h: any) => ({
-      questionId: h.question_id || h.questionId || "",
-      question: h.question || "",
-      passed: h.passed || false,
-      score: h.score || 0,
-      timestamp: h.timestamp || h.created_at || new Date().toISOString(),
-      difficulty: h.difficulty || 1,
-      category: h.category || "word",
-    })),
+    gradeLevel: {
+      grade: profile.grade_level,
+      semester: profile.semester || "上学期",
+      displayName: `小学${profile.grade_level}年级${profile.semester || "上学期"}`,
+    },
+    currentPoints: profile.current_points || 0,
+    totalPointsEarned: profile.total_points_earned || 0,
+    currentLevel: profile.current_level || 1,
+    answerHistory: profile.answer_history || [],
   };
-}
-
-/**
- * 从 Supabase 加载家长的孩子列表
- */
-export async function syncChildrenFromSupabase(parentId: string): Promise<Child[]> {
-  try {
-    const children = await loadChildrenFromSupabase(parentId);
-    return children;
-  } catch (error) {
-    console.error("同步孩子数据失败:", error);
-    return [];
-  }
-}
-
-/**
- * 批量同步所有孩子的数据到 Supabase
- */
-export async function syncAllChildrenToSupabase(children: Child[]): Promise<void> {
-  try {
-    await Promise.all(
-      children.map((child) => saveChildToSupabase(child))
-    );
-  } catch (error) {
-    console.error("批量同步失败:", error);
-    throw error;
-  }
 }

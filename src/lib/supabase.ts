@@ -73,6 +73,7 @@ export type Database = {
         Row: {
           id: string;
           child_id: string;
+          question_id: string | null;
           question: string;
           transcript: string;
           score: number;
@@ -85,6 +86,7 @@ export type Database = {
         Insert: {
           id?: string;
           child_id: string;
+          question_id?: string | null;
           question: string;
           transcript: string;
           score: number;
@@ -97,6 +99,7 @@ export type Database = {
         Update: {
           id?: string;
           child_id?: string;
+          question_id?: string | null;
           question?: string;
           transcript?: string;
           score?: number;

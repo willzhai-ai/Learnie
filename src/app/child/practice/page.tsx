@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Home, Shuffle, Target, Volume2, Sparkles, RefreshCw } from "lucide-react";
+import { Home, Shuffle, Target, Volume2, Sparkles, RefreshCw, ChevronLeft } from "lucide-react";
 import Link from "next/link";
 import { useGameStore } from "@/stores/gameStore";
 import { Button } from "@/components/ui/Button";
@@ -38,6 +38,10 @@ export default function PracticePage() {
 
   const difficultyParam = searchParams.get("difficulty");
 
+  // 使用 ref 追踪当前题目的 ID，用于在完成时更新使用记录
+  const currentQuestionIdRef = useRef<string | null>(null);
+  const hasAttemptedRef = useRef<boolean>(false);
+
   const [step, setStep] = useState<Step>("select-difficulty");
   const [selectedDifficulty, setSelectedDifficulty] = useState<number | null>(null);
   const [currentTask, setCurrentTask] = useState<any>(null);
@@ -45,39 +49,42 @@ export default function PracticePage() {
     score: number;
     passed: boolean;
   } | null>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
 
-  // 使用智能题库（会自动检查完成情况，只在必要时生成新题目）
+  // 使用智能题库
   const questionBank = useSmartQuestionBank();
 
-  // 根据难度获取题目 (使用useCallback避免重复创建)
+  // 根据难度获取题目
   const getQuestionsByDifficulty = useCallback((difficulty: number) => {
     return questionBank.questions.filter(q => q.difficulty === difficulty);
   }, [questionBank.questions]);
 
-  // Auto-start practice when difficulty is passed via URL
+  // 初始化：处理 URL 参数中的难度
   useEffect(() => {
-    // 如果已经有 currentTask，说明已经初始化过了，不需要重复执行
-    if (currentTask) return;
+    if (isInitialized) return;
 
-    // 如果正在检查或生成题目，等待完成
+    // 等待题库加载完成
     if (questionBank.isChecking || questionBank.isLoading) return;
 
-    if (difficultyParam && step === "select-difficulty") {
-      const difficulty = parseInt(difficultyParam);
-      if (difficulty >= 1 && difficulty <= 5) {
-        const questions = getQuestionsByDifficulty(difficulty);
-        if (questions.length > 0) {
-          const randomIndex = Math.floor(Math.random() * questions.length);
-          const selectedQuestion = questions[randomIndex];
-          setSelectedDifficulty(difficulty);
-          setCurrentTask(selectedQuestion);
-          // 更新题目使用记录
-          updateQuestionUsage(difficulty, selectedQuestion.id);
-          setStep("instruction");
-        }
+    const difficulty = difficultyParam ? parseInt(difficultyParam) : null;
+
+    if (difficulty && difficulty >= 1 && difficulty <= 5) {
+      const questions = getQuestionsByDifficulty(difficulty);
+      if (questions.length > 0) {
+        const randomIndex = Math.floor(Math.random() * questions.length);
+        const selectedQuestion = questions[randomIndex];
+        setSelectedDifficulty(difficulty);
+        setCurrentTask(selectedQuestion);
+        currentQuestionIdRef.current = selectedQuestion.id;
+        setStep("instruction");
+
+        // 清除 URL 参数，避免刷新时重复触发
+        router.replace("/child/practice");
       }
     }
-  }, [difficultyParam, step, currentTask, questionBank.isChecking, questionBank.isLoading, questionBank.questions, getQuestionsByDifficulty, updateQuestionUsage]);
+
+    setIsInitialized(true);
+  }, [difficultyParam, questionBank.isChecking, questionBank.isLoading, questionBank.questions, getQuestionsByDifficulty, isInitialized, router]);
 
   // Get task type string
   const getTaskType = (difficulty: number): string => {
@@ -112,6 +119,9 @@ export default function PracticePage() {
         passed: data.passed,
       });
 
+      // 标记已尝试答题
+      hasAttemptedRef.current = true;
+
       // 记录答题历史
       if (currentTask && currentChild) {
         addAnswerHistory({
@@ -128,6 +138,7 @@ export default function PracticePage() {
     },
   });
 
+  // 选择难度并开始练习
   const handleSelectDifficulty = async (difficulty: number) => {
     setSelectedDifficulty(difficulty);
 
@@ -140,12 +151,12 @@ export default function PracticePage() {
     }
 
     if (questions.length > 0) {
-      // 随机选择一个题目
       const randomIndex = Math.floor(Math.random() * questions.length);
       const selectedQuestion = questions[randomIndex];
       setCurrentTask(selectedQuestion);
-      // 更新题目使用记录
-      updateQuestionUsage(difficulty, selectedQuestion.id);
+      currentQuestionIdRef.current = selectedQuestion.id;
+      hasAttemptedRef.current = false;
+      setResult(null);
       setStep("instruction");
     }
   };
@@ -171,7 +182,13 @@ export default function PracticePage() {
     setStep("instruction");
   };
 
+  // 下一题
   const handleNext = () => {
+    // 只有在用户已经尝试过答题后，才更新上一题的使用记录
+    if (currentQuestionIdRef.current && hasAttemptedRef.current && selectedDifficulty) {
+      updateQuestionUsage(selectedDifficulty, currentQuestionIdRef.current);
+    }
+
     // 从题库获取新的随机题目
     if (selectedDifficulty) {
       const questions = getQuestionsByDifficulty(selectedDifficulty);
@@ -179,20 +196,21 @@ export default function PracticePage() {
         const randomIndex = Math.floor(Math.random() * questions.length);
         const nextQuestion = questions[randomIndex];
         setCurrentTask(nextQuestion);
-        // 更新题目使用记录
-        updateQuestionUsage(selectedDifficulty, nextQuestion.id);
+        currentQuestionIdRef.current = nextQuestion.id;
+        hasAttemptedRef.current = false;
         reset();
         setResult(null);
         setStep("instruction");
       } else {
         // 没有更多题目了，刷新获取新题目
         questionBank.refresh().then(() => {
-          const newQuestions = getQuestionsByDifficulty(selectedDifficulty!);
+          const newQuestions = getQuestionsByDifficulty(selectedDifficulty);
           if (newQuestions.length > 0) {
             const randomIndex = Math.floor(Math.random() * newQuestions.length);
             const nextQuestion = newQuestions[randomIndex];
             setCurrentTask(nextQuestion);
-            updateQuestionUsage(selectedDifficulty!, nextQuestion.id);
+            currentQuestionIdRef.current = nextQuestion.id;
+            hasAttemptedRef.current = false;
             reset();
             setResult(null);
             setStep("instruction");
@@ -202,27 +220,43 @@ export default function PracticePage() {
     }
   };
 
+  // 返回处理
   const handleBack = () => {
+    // 如果已经尝试过答题，更新使用记录
+    if (currentQuestionIdRef.current && hasAttemptedRef.current && selectedDifficulty) {
+      updateQuestionUsage(selectedDifficulty, currentQuestionIdRef.current);
+    }
+
     // 如果已经在难度选择页面，返回到英语世界页面
     if (step === "select-difficulty") {
       router.push("/child/english");
       return;
     }
 
-    // 如果是在练习中（instruction、recording、processing、result），返回难度选择
-    if (step === "instruction" || step === "recording" || step === "processing" || step === "result") {
-      setSelectedDifficulty(null);
-      setCurrentTask(null);
-      setResult(null);
-      reset();
-      setStep("select-difficulty");
-      // 清除 URL 中的 difficulty 参数，避免重新触发自动开始
-      router.replace("/child/practice");
-    }
+    // 如果是在练习中，返回难度选择
+    setSelectedDifficulty(null);
+    setCurrentTask(null);
+    setResult(null);
+    currentQuestionIdRef.current = null;
+    hasAttemptedRef.current = false;
+    reset();
+    setStep("select-difficulty");
   };
 
-  const handleBackToEnglish = () => {
-    router.push("/child/english");
+  // 返回难度选择（结果页面的按钮）
+  const handleBackToDifficultySelect = () => {
+    // 只有在用户已经尝试过答题后，才更新使用记录
+    if (currentQuestionIdRef.current && hasAttemptedRef.current && selectedDifficulty) {
+      updateQuestionUsage(selectedDifficulty, currentQuestionIdRef.current);
+    }
+
+    setSelectedDifficulty(null);
+    setCurrentTask(null);
+    setResult(null);
+    currentQuestionIdRef.current = null;
+    hasAttemptedRef.current = false;
+    reset();
+    setStep("select-difficulty");
   };
 
   return (
@@ -230,10 +264,10 @@ export default function PracticePage() {
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-2xl mx-auto px-4 py-3">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Button variant="ghost" size="sm" onClick={handleBack}>
-                ←
+                <ChevronLeft className="w-5 h-5" />
               </Button>
               <h1 className="text-lg font-bold text-gray-800">
                 {selectedDifficulty ? `${DIFFICULTY_INFO[selectedDifficulty as keyof typeof DIFFICULTY_INFO].name}练习` : "练习模式"}
@@ -333,7 +367,7 @@ export default function PracticePage() {
           )}
 
           {/* Step 2-5: Practice flow */}
-          {currentTask && (
+          {currentTask && step !== "select-difficulty" && (
             <>
               {step !== "result" && (
                 <motion.div
@@ -543,13 +577,7 @@ export default function PracticePage() {
                   {/* Back to difficulty */}
                   <div className="text-center mt-4">
                     <button
-                      onClick={() => {
-                        setSelectedDifficulty(null);
-                        setCurrentTask(null);
-                        setResult(null);
-                        reset();
-                        setStep("select-difficulty");
-                      }}
+                      onClick={handleBackToDifficultySelect}
                       className="text-gray-600 hover:text-gray-800"
                     >
                       ← 返回难度选择

@@ -44,6 +44,8 @@ async function getQuestionCompletionFromSupabase(
   difficulty: number
 ): Promise<QuestionCompletion[]> {
   try {
+    console.log(`[智能生成] 查询 Supabase - childId: ${childId}, difficulty: ${difficulty}`);
+
     const { data, error } = await supabase
       .from("answer_history")
       .select("question_id, question, score")
@@ -57,8 +59,12 @@ async function getQuestionCompletionFromSupabase(
     }
 
     if (!data || data.length === 0) {
+      console.log(`[智能生成] Supabase 返回空结果 - data: ${JSON.stringify(data)}, error: ${error}`);
       return [];
     }
+
+    console.log(`[智能生成] 从 Supabase 查询到 ${data.length} 条答题历史记录`);
+    console.log(`[智能生成] 原始数据:`, JSON.stringify(data, null, 2));
 
     // 按题目分组，计算每个题目的最佳成绩和尝试次数
     const questionMap = new Map<string, QuestionCompletion>();
@@ -84,7 +90,9 @@ async function getQuestionCompletionFromSupabase(
       }
     }
 
-    return Array.from(questionMap.values());
+    const result = Array.from(questionMap.values());
+    console.log(`[智能生成] 汇总后: ${result.length} 道题目，已完成: ${result.filter(c => c.completed).length}`);
+    return result;
   } catch (error) {
     console.error("[智能生成] 获取答题历史出错:", error);
     return [];
@@ -179,20 +187,24 @@ async function getQuestionsFromPublicPool(
   count: number
 ): Promise<any[]> {
   try {
+    // 获取所有符合条件的题目（注意：Supabase 客户端不支持 order("RANDOM()")）
     const { data, error } = await supabase
       .from("public_questions")
       .select("*")
       .eq("grade_level", gradeLevel)
       .eq("difficulty", difficulty)
-      .order("RANDOM()")
       .limit(count * 2); // 获取更多以便筛选
 
     if (error || !data) {
+      console.log("[智能生成] 公共池查询失败或为空:", error);
       return [];
     }
 
+    // 客户端随机排序
+    const shuffled = [...data].sort(() => Math.random() - 0.5);
+
     // 过滤掉已完成的题目
-    return data
+    return shuffled
       .filter((q) => !excludeIds.has(q.id))
       .slice(0, count)
       .map((q) => ({
@@ -248,6 +260,9 @@ export async function POST(request: NextRequest) {
     );
 
     console.log(`[智能生成] 当前题库中有 ${currentQuestions.length} 道该难度的题目`);
+    if (currentQuestions.length > 0) {
+      console.log(`[智能生成] 当前题库题目IDs:`, currentQuestions.map((q: any) => q.id));
+    }
 
     // 3. 分析完成情况
     const { completed, incomplete, completedIds } = getQuestionCompletionStatus(
